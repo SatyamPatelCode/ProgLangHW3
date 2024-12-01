@@ -1,29 +1,85 @@
 :- [facts].
 :- [helper].
 
+% Parse the natural language commands using the given grammar
+nlp_parse(LineSplit, Query) :-
+    phrase(command(Query), LineSplit).
 
-%replace "fail" for your solution. It is simply a placeholder to avoid binding for the starter code.
-nlp_parse(LineSplit,Query):- fail.
-evaluate_logical(Query,FilteredTable):- fail.
+% Evaluate the logical reasoning for the parsed query
+evaluate_logical([command, TableColumnInfo, Conditions], FilteredTable) :-
+    findall(
+        [TableName, Headers, FilteredRows],
+        (
+            member(TableInfo, TableColumnInfo),
+            evaluate_table(TableInfo, Conditions, TableName, Headers, FilteredRows)
+        ),
+        FilteredTable
+    ).
 
-% Parse individual commands and evaluate
-parse_and_evaluate(_,[], []).
-parse_and_evaluate(part1,[[_,LineSplit]|T], [Query|ResultTail]):- 
-                nlp_parse(LineSplit,Query),
-                write(Query),nl,
-                parse_and_evaluate(part1,T,ResultTail).
-                
-parse_and_evaluate(part2,[[Line,LineSplit]|T], [Result|ResultTail]):- 
-                write(Line),nl,
-                nlp_parse(LineSplit,Query),
-                evaluate_logical(Query,FilteredTable),
-                %write("\t"),write(FilteredTable),nl,
-                print_tables(FilteredTable),
-                parse_and_evaluate(part2,T,ResultTail).
-% Main 
-main :-
-    current_prolog_flag(argv, [DataFile, PrintOption|_]),
-    open(DataFile, read, Stream),
-    read_file(Stream,Lines), %Lines contain individual line within the file split by spaces and special character like (,) and (.) . 
-    close(Stream),
-	parse_and_evaluate(PrintOption,Lines,_).
+% Evaluate a single table based on conditions
+evaluate_table([all, TableName], Conditions, TableName, Headers, FilteredRows) :-
+    table(TableName, Headers),
+    filter_rows(TableName, Headers, Conditions, FilteredRows).
+
+evaluate_table([[Columns], TableName], Conditions, TableName, Columns, FilteredRows) :-
+    table(TableName, Headers),
+    filter_rows(TableName, Headers, Conditions, FilteredRows),
+    project_columns(FilteredRows, Headers, Columns, FilteredRows).
+
+% Filter rows based on conditions
+filter_rows(TableName, Headers, [], Rows) :-
+    findall(Row, row(TableName, Row), Rows).
+
+filter_rows(TableName, Headers, [condition(Column, Equality, Value)], FilteredRows) :-
+    column_index(Column, Headers, Index),
+    findall(
+        Row,
+        (
+            row(TableName, Row),
+            match_condition(Equality, Row, Index, Value)
+        ),
+        FilteredRows
+    ).
+
+% Match a condition against a value
+match_condition(<, Row, Index, Value) :-
+    nth1(Index, Row, Cell),
+    Cell @< Value.
+match_condition(>, Row, Index, Value) :-
+    nth1(Index, Row, Cell),
+    Cell @> Value.
+match_condition(=, Row, Index, Value) :-
+    nth1(Index, Row, Value).
+
+% Get the index of a column
+column_index(Column, Headers, Index) :-
+    nth1(Index, Headers, Column).
+
+% Project specific columns from rows
+project_columns([], _, _, []).
+project_columns([Row | Rows], Headers, Columns, [ProjectedRow | ProjectedRows]) :-
+    maplist(column_index, Columns, Indexes),
+    maplist(nth1, Indexes, Row, ProjectedRow),
+    project_columns(Rows, Headers, Columns, ProjectedRows).
+
+% Define the grammar for parsing natural language commands
+command([command, TableColumnInfo, CommandOperation]) -->
+    ["Get"],
+    table_column_info(TableColumnInfo),
+    command_operation(CommandOperation),
+    ["."].
+
+table_column_info([[all, TableName]]) -->
+    ["all", "from"], table_name(TableName).
+table_column_info([[[Column], TableName]]) -->
+    column(Column), ["from"], table_name(TableName).
+
+command_operation([]) --> [].
+command_operation([join, TableName, ColumnName]) -->
+    ["linking", "customer", "by", "their"], column(ColumnName).
+
+table_name(TableName) -->
+    [Atom], { atom_string(TableName, Atom) }.
+
+column(Column) -->
+    [Atom], { atom_string(Column, Atom) }.
