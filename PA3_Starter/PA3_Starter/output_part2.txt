@@ -1,0 +1,56 @@
+Processing Line: Get all from employee.
+Tokenized Line: [Get,all,from,employee,.]
+Parsed Query: [command,[[all,employee]],[]]
+Filtered Table: [[employee,[EmployeeID,LastName,FirstName,BirthDate,Photo],[[1,Davolio,Nancy,12-8-1968,EmpID1.pic],[2,Fuller,Andrew,2-19-1952,EmpID2.pic],[3,Leverling,Janet,8-30-1963,EmpID3.pic],[4,Peacock,Margaret,9-19-1958,EmpID4.pic],[5,Buchanan,Steven,3-4-1955,EmpID5.pic],[6,Suyama,Michael,7-2-1963,EmpID6.pic],[7,King,Robert,5-29-1960,EmpID7.pic],[8,Callahan,Laura,1-9-1958,EmpID8.pic],[9,Dodsworth,Anne,7-2-1969,EmpID9.pic],[10,West,Adam,9-19-1928,EmpID10.pic]]]]
+
+            employee                
+--------------------------------
+EmployeeID	LastName	FirstName	BirthDate	Photo	
+--------------------------------
+1	Davolio	Nancy	12-8-1968	EmpID1.pic	
+2	Fuller	Andrew	2-19-1952	EmpID2.pic	
+3	Leverling	Janet	8-30-1963	EmpID3.pic	
+4	Peacock	Margaret	9-19-1958	EmpID4.pic	
+5	Buchanan	Steven	3-4-1955	EmpID5.pic	
+6	Suyama	Michael	7-2-1963	EmpID6.pic	
+7	King	Robert	5-29-1960	EmpID7.pic	
+8	Callahan	Laura	1-9-1958	EmpID8.pic	
+9	Dodsworth	Anne	7-2-1969	EmpID9.pic	
+10	West	Adam	9-19-1928	EmpID10.pic	
+--------------------------------
+
+Processing Line: Get ProductName from product and Price from product.
+Tokenized Line: [Get,ProductName,from,product,and,Price,from,product,.]
+Parsed Query: [command,[[[ProductName,Price],product]],[]]
+Filtered Table: [[product,[ProductName,Price],[[Chais,18],[Chang,19],[AniseedSyrup,10],[ChefAntonsCajunSeasoning,22],[ChefAntonsGumboMix,21.35],[GrandmasBoysenberrySpread,25],[UncleBobOrganicDriedPears,30],[NorthwoodsCranberrySauce,40],[MishiKobeKiku,97],[Ikura,31],[QuesoCabrales,21],[QuesoManchegoLaPastora,38],[Konbu,6],[Tofu,23.25],[GenenShouyu,15.5],[Pavlova,17.45],[AliceMutton,39],[FooBar,26]]]]
+
+            product                
+--------------------------------
+ProductName	Price	
+--------------------------------
+Chais	18	
+Chang	19	
+AniseedSyrup	10	
+ChefAntonsCajunSeasoning	22	
+ChefAntonsGumboMix	21.35	
+GrandmasBoysenberrySpread	25	
+UncleBobOrganicDriedPears	30	
+NorthwoodsCranberrySauce	40	
+MishiKobeKiku	97	
+Ikura	31	
+QuesoCabrales	21	
+QuesoManchegoLaPastora	38	
+Konbu	6	
+Tofu	23.25	
+GenenShouyu	15.5	
+Pavlova	17.45	
+AliceMutton	39	
+FooBar	26	
+--------------------------------
+
+Processing Line: Get CustomerID from order linking customer by their CustomerID.
+Tokenized Line: [Get,CustomerID,from,order,linking,customer,by,their,CustomerID,.]
+Failed to parse the line: [Get,CustomerID,from,order,linking,customer,by,their,CustomerID,.]
+Processing Line: Get LastName from customer such that its values are either MariaAnders, Fuller or Suyama.
+Tokenized Line: [Get,LastName,from,customer,such,that,its,values,are,either,MariaAnders,,,Fuller,or,Suyama,.]
+Parsed Query: [command,[[[LastName],customer]],[such_that,[MariaAnders,,,Fuller,or,Suyama,.]]]
