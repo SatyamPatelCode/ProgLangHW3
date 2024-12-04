@@ -1,85 +1,225 @@
-:- [facts].
-:- [helper].
+:- [facts]. % Load the facts file containing tables and rows
 
-% Parse the natural language commands using the given grammar
-nlp_parse(LineSplit, Query) :-
-    phrase(command(Query), LineSplit).
+:- [helper]. % Load helper predicates for printing tables
 
-% Evaluate the logical reasoning for the parsed query
-evaluate_logical([command, TableColumnInfo, Conditions], FilteredTable) :-
-    findall(
-        [TableName, Headers, FilteredRows],
-        (
-            member(TableInfo, TableColumnInfo),
-            evaluate_table(TableInfo, Conditions, TableName, Headers, FilteredRows)
-        ),
-        FilteredTable
-    ).
 
-% Evaluate a single table based on conditions
-evaluate_table([all, TableName], Conditions, TableName, Headers, FilteredRows) :-
-    table(TableName, Headers),
-    filter_rows(TableName, Headers, Conditions, FilteredRows).
 
-evaluate_table([[Columns], TableName], Conditions, TableName, Columns, FilteredRows) :-
-    table(TableName, Headers),
-    filter_rows(TableName, Headers, Conditions, FilteredRows),
-    project_columns(FilteredRows, Headers, Columns, FilteredRows).
+% Parse and evaluate each line
 
-% Filter rows based on conditions
-filter_rows(TableName, Headers, [], Rows) :-
-    findall(Row, row(TableName, Row), Rows).
+parse_and_evaluate(_, [], []). % Base case: Stop when no lines are left.
 
-filter_rows(TableName, Headers, [condition(Column, Equality, Value)], FilteredRows) :-
-    column_index(Column, Headers, Index),
-    findall(
-        Row,
-        (
-            row(TableName, Row),
-            match_condition(Equality, Row, Index, Value)
-        ),
-        FilteredRows
-    ).
 
-% Match a condition against a value
-match_condition(<, Row, Index, Value) :-
-    nth1(Index, Row, Cell),
-    Cell @< Value.
-match_condition(>, Row, Index, Value) :-
-    nth1(Index, Row, Cell),
-    Cell @> Value.
-match_condition(=, Row, Index, Value) :-
-    nth1(Index, Row, Value).
 
-% Get the index of a column
-column_index(Column, Headers, Index) :-
-    nth1(Index, Headers, Column).
+parse_and_evaluate(part2, [[Line, LineSplit] | T], ResultTail) :-
 
-% Project specific columns from rows
-project_columns([], _, _, []).
-project_columns([Row | Rows], Headers, Columns, [ProjectedRow | ProjectedRows]) :-
-    maplist(column_index, Columns, Indexes),
-    maplist(nth1, Indexes, Row, ProjectedRow),
-    project_columns(Rows, Headers, Columns, ProjectedRows).
+    write('Processing Line: '), write(Line), nl,  % Debug original line
 
-% Define the grammar for parsing natural language commands
-command([command, TableColumnInfo, CommandOperation]) -->
-    ["Get"],
-    table_column_info(TableColumnInfo),
-    command_operation(CommandOperation),
-    ["."].
+    write('Tokenized Line: '), write(LineSplit), nl, % Debug tokenized version
 
-table_column_info([[all, TableName]]) -->
-    ["all", "from"], table_name(TableName).
-table_column_info([[[Column], TableName]]) -->
-    column(Column), ["from"], table_name(TableName).
+    (   nlp_parse(LineSplit, Query) ->            % Parse the tokenized line into a query
 
-command_operation([]) --> [].
-command_operation([join, TableName, ColumnName]) -->
-    ["linking", "customer", "by", "their"], column(ColumnName).
+        write('Parsed Query: '), write(Query), nl,
 
-table_name(TableName) -->
-    [Atom], { atom_string(TableName, Atom) }.
+        evaluate_logical(Query, FilteredTable),   % Evaluate the parsed query
 
-column(Column) -->
-    [Atom], { atom_string(Column, Atom) }.
+        write('Filtered Table: '), write(FilteredTable), nl,
+
+        print_tables(FilteredTable)              % Output the filtered table in tabular form
+
+    ;   write('Failed to parse the line: '), write(LineSplit), nl
+
+    ),
+
+    parse_and_evaluate(part2, T, ResultTail).     % Recursively process the remaining lines
+
+
+
+% Entry point for the program
+
+main :-
+
+    current_prolog_flag(argv, [DataFile, PrintOption | _]), % Read command-line arguments
+
+    open(DataFile, read, Stream),                % Open the input file
+
+    read_file(Stream, Lines),                    % Read and tokenize the lines from the file
+
+    close(Stream),                               % Close the file after reading
+
+    parse_and_evaluate(PrintOption, Lines, _).   % Process each line based on the specified mode
+
+
+
+% NLP Parsing Rules
+
+nlp_parse(['Get', all, from, Table, '.'], [command, [[all, Table]], []]).
+
+
+
+% Handles multiple columns with 'and'
+
+nlp_parse(['Get', Column1, from, Table, 'and', Column2, from, Table, '.'],
+
+    [command, [[[Column1, Column2], Table]], []]).
+
+
+
+% Handles 'such that its values are either ... or ...'
+
+nlp_parse(['Get', Column, from, Table, 'such', 'that', 'its', 'values', 'are', 'either' | Rest],
+
+    [command, [[[Column], Table]], [such_that, Values]]) :-
+
+    extract_values(Rest, Values).
+
+
+
+% Handles 'linking' for join operations
+
+nlp_parse(['Get', Columns, from, Table1, 'linking', Table2, 'by', Column, '.'],
+
+    [command, [[[Columns], Table1, linking, Table2, Column]], []]).
+
+
+
+% Handles conditions with 'where' and comparisons
+
+nlp_parse(['Get', Columns, from, Table, 'where', Column, 'is', 'greater', 'than', Value, '.'],
+
+    [command, [[[Columns], Table]], [where, [condition, Column, '>', Value]]]).
+
+nlp_parse(['Get', Columns, from, Table, 'where', Column, 'is', 'less', 'than', Value, '.'],
+
+    [command, [[[Columns], Table]], [where, [condition, Column, '<', Value]]]).
+
+
+
+% Helper to extract values for 'either ... or'
+
+extract_values([], []).
+
+extract_values([',', or, Value | T], [Value | Rest]) :- extract_values(T, Rest).
+
+extract_values([Value, ',', or | T], [Value | Rest]) :- extract_values(T, Rest).
+
+extract_values([Value | T], [Value | Rest]) :- extract_values(T, Rest).
+
+
+
+% Evaluate Logical Queries
+
+evaluate_logical([command, [[all, Table]], []], [[Table, Headers, Rows]]) :-
+
+    table(Table, Headers),
+
+    is_list(Headers), % Ensure Headers is a list
+
+    findall(Row, row(Table, Row), Rows). % Fetch all rows.
+
+
+
+evaluate_logical([command, [[Columns, Table]], []], [[Table, Columns, FilteredRows]]) :-
+
+    table(Table, Headers),
+
+    is_list(Columns),
+
+    findall(FilteredRow,
+
+        (row(Table, Row), extract_columns(Row, Headers, Columns, FilteredRow)),
+
+        FilteredRows).
+
+
+
+evaluate_logical([command, [[Columns, Table]], [where, [condition, Column, Op, Value]]], [[Table, Columns, FilteredRows]]) :-
+
+    table(Table, Headers),
+
+    nth0(Index, Headers, Column),
+
+    findall(Row,
+
+        (row(Table, Row),
+
+         nth0(Index, Row, CellValue),
+
+         custom_compare(Op, CellValue, Value)),
+
+        FilteredRows),
+
+    extract_columns_for_rows(FilteredRows, Headers, Columns).
+
+
+
+evaluate_logical([command, [[[Columns], Table1, linking, Table2, Column]], []], [[Table1, Columns, Result]]) :-
+
+    table(Table1, Headers1),
+
+    table(Table2, Headers2),
+
+    nth0(Index1, Headers1, Column),
+
+    nth0(Index2, Headers2, Column),
+
+    findall(Row1,
+
+        (row(Table1, Row1),
+
+         row(Table2, Row2),
+
+         nth0(Index1, Row1, Value),
+
+         nth0(Index2, Row2, Value)),
+
+        Result).
+
+
+
+evaluate_logical([command, [[[Column], Table]], [such_that, Values]], [[Table, [Column], FilteredRows]]) :-
+
+    table(Table, Headers),
+
+    nth0(Index, Headers, Column),
+
+    findall(Row,
+
+        (row(Table, Row),
+
+         nth0(Index, Row, CellValue),
+
+         member(CellValue, Values)),
+
+        FilteredRows).
+
+
+
+% Helper predicates for extracting columns and filtering rows
+
+extract_columns_for_rows([], _, _, []).
+
+extract_columns_for_rows([Row | Rows], Headers, Columns, [FilteredRow | FilteredRows]) :-
+
+    extract_columns(Row, Headers, Columns, FilteredRow),
+
+    extract_columns_for_rows(Rows, Headers, Columns, FilteredRows).
+
+
+
+extract_columns(Row, Headers, Columns, FilteredRow) :-
+
+    findall(Value,
+
+        (nth0(Index, Headers, Column), member(Column, Columns), nth0(Index, Row, Value)),
+
+        FilteredRow).
+
+
+
+% Comparison helpers
+
+custom_compare('>', A, B) :- A > B.
+
+custom_compare('<', A, B) :- A < B.
+
+custom_compare('=', A, B) :- A = B.
