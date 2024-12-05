@@ -1,113 +1,269 @@
-:- [facts]. % Load the facts file containing tables and rows
-:- [helper]. % Load helper predicates for printing tables
+% main.pl
+% Include the helper and fact files
+:- [helper].
+:- [facts].
 
-% Parse and evaluate each line
-parse_and_evaluate(_, [], []). % Base case: Stop when no lines are left.
-
-parse_and_evaluate(part2, [[Line, LineSplit] | T], ResultTail) :-
-    write('Processing Line: '), write(Line), nl,  % Debug original line
-    write('Tokenized Line: '), write(LineSplit), nl, % Debug tokenized version
-    (   nlp_parse(LineSplit, Query) ->            % Parse the tokenized line into a query
-        write('Parsed Query: '), write(Query), nl,
-        evaluate_logical(Query, FilteredTable),   % Evaluate the parsed query
-        write('Filtered Table: '), write(FilteredTable), nl,
-        print_tables(FilteredTable)              % Output the filtered table in tabular form
-    ;   write('Failed to parse the line: '), write(LineSplit), nl
-    ),
-    parse_and_evaluate(part2, T, ResultTail).     % Recursively process the remaining lines
-
-% Entry point for the program
 main :-
-    current_prolog_flag(argv, [DataFile, PrintOption | _]), % Read command-line arguments
-    open(DataFile, read, Stream),                % Open the input file
-    read_file(Stream, Lines),                    % Read and tokenize the lines from the file
-    close(Stream),                               % Close the file after reading
-    parse_and_evaluate(PrintOption, Lines, _).   % Process each line based on the specified mode
+    current_prolog_flag(argv, Argv),
+    ( Argv = [FileName, PartOption] ->
+        open(FileName, read, Stream),
+        read_file(Stream, InputLines),
+        close(Stream),
+        process_lines(InputLines, PartOption)
+    ; write('Invalid arguments.'), nl
+    ).
 
-% NLP Parsing Rules
-nlp_parse(['Get', all, from, Table, '.'], [command, [[all, Table]], []]).
+process_lines([], _).
+process_lines([[OriginalLine, LineSplit]|Rest], PartOption) :-
+    ( nlp_parse(LineSplit, Query) ->
+        ( PartOption == 'part1' ->
+            writeln(Query)
+        ; PartOption == 'part2' ->
+            write(OriginalLine), nl,
+            evaluate_logical(Query, FilteredTable),
+            print_tables(FilteredTable)
+        ; write('Invalid part option.'), nl
+        )
+    ; write('Failed to parse line: '), write(OriginalLine), nl
+    ),
+    process_lines(Rest, PartOption).
 
-% Handles multiple columns with 'and'
-nlp_parse(['Get', Column1, from, Table, 'and', Column2, from, Table, '.'],
-    [command, [[[Column1, Column2], Table]], []]).
+% Parsing the commands using DCG
+nlp_parse(LineSplit, Query) :-
+    phrase(command(Query), LineSplit).
 
-% Handles 'such that its values are either ... or ...'
-nlp_parse(['Get', Column, from, Table, 'such', 'that', 'its', 'values', 'are', 'either' | Rest],
-    [command, [[[Column], Table]], [such_that, Values]]) :-
-    extract_values(Rest, Values).
+command([command, TableColumnInfo, CommandOperation]) -->
+    ['Get'], table_column_info(TableColumnInfo), command_operation(CommandOperation), ['.'].
 
-% Handles 'linking' for join operations
-nlp_parse(['Get', Columns, from, Table1, 'linking', Table2, 'by', Column, '.'],
-    [command, [[[Columns], Table1, linking, Table2, Column]], []]).
+table_column_info(TableColumnInfo) -->
+    table_column_detail(Detail),
+    ( ['and'], table_column_info(Rest) ->
+        { TableColumnInfo = [Detail|Rest] }
+    ; { TableColumnInfo = [Detail] }
+    ).
 
-% Handles conditions with 'where' and comparisons
-nlp_parse(['Get', Columns, from, Table, 'where', Column, 'is', 'greater', 'than', Value, '.'],
-    [command, [[[Columns], Table]], [where, [condition, Column, '>', Value]]]).
-nlp_parse(['Get', Columns, from, Table, 'where', Column, 'is', 'less', 'than', Value, '.'],
-    [command, [[[Columns], Table]], [where, [condition, Column, '<', Value]]]).
+table_column_detail(Info) -->
+    ( ['all', 'from'], table(TableName) ->
+        { Info = [all, TableName] }
+    ; columns(Columns), ['from'], table(TableName) ->
+        { Info = [Columns, TableName] }
+    ).
 
-% Helper to extract values for 'either ... or'
-extract_values([], []).
-extract_values([',', or, Value | T], [Value | Rest]) :- extract_values(T, Rest).
-extract_values([Value, ',', or | T], [Value | Rest]) :- extract_values(T, Rest).
-extract_values([Value | T], [Value | Rest]) :- extract_values(T, Rest).
+command_operation(Operation) -->
+    ( join_operation(Operation)
+    ; match_operation(Operation)
+    ; where_operation(Operation)
+    ; { Operation = [] }
+    ).
 
-% Evaluate Logical Queries
-evaluate_logical([command, [[all, Table]], []], [[Table, Headers, Rows]]) :-
-    table(Table, Headers),
-    is_list(Headers), % Ensure Headers is a list
-    findall(Row, row(Table, Row), Rows). % Fetch all rows.
+join_operation([join, TableName, ColumnName]) -->
+    ( ['linking']; ['connecting'] ), table(TableName), ['by', 'their'], col(ColumnName).
 
-evaluate_logical([command, [[Columns, Table]], []], [[Table, Columns, FilteredRows]]) :-
-    table(Table, Headers),
-    is_list(Columns),
-    findall(FilteredRow,
-        (row(Table, Row), extract_columns(Row, Headers, Columns, FilteredRow)),
-        FilteredRows).
+match_operation(Operation) -->
+    ['such', 'that'], match_condition(Operation).
 
-evaluate_logical([command, [[Columns, Table]], [where, [condition, Column, Op, Value]]], [[Table, Columns, FilteredRows]]) :-
-    table(Table, Headers),
-    nth0(Index, Headers, Column),
-    findall(Row,
-        (row(Table, Row),
-         nth0(Index, Row, CellValue),
-         custom_compare(Op, CellValue, Value)),
-        FilteredRows),
-    extract_columns_for_rows(FilteredRows, Headers, Columns).
+match_condition([matches, Values]) -->
+    ['its', 'values', 'are', 'either'], values(Values).
 
-evaluate_logical([command, [[[Columns], Table1, linking, Table2, Column]], []], [[Table1, Columns, Result]]) :-
-    table(Table1, Headers1),
-    table(Table2, Headers2),
-    nth0(Index1, Headers1, Column),
-    nth0(Index2, Headers2, Column),
-    findall(Row1,
-        (row(Table1, Row1),
-         row(Table2, Row2),
-         nth0(Index1, Row1, Value),
-         nth0(Index2, Row2, Value)),
-        Result).
+match_condition([matches, ColumnName, Query]) -->
+    col(ColumnName), ['matches', 'values', 'within', 'the'], col(MatchColName), ['in'], table(MatchTableName),
+    ( where_operation(WhereOp) ->
+        { Query = [command, [[[MatchColName], MatchTableName]], WhereOp] }
+    ; { Query = [command, [[[MatchColName], MatchTableName]], []] }
+    ).
 
-evaluate_logical([command, [[[Column], Table]], [such_that, Values]], [[Table, [Column], FilteredRows]]) :-
-    table(Table, Headers),
-    nth0(Index, Headers, Column),
-    findall(Row,
-        (row(Table, Row),
-         nth0(Index, Row, CellValue),
-         member(CellValue, Values)),
-        FilteredRows).
+where_operation([where, Condition]) -->
+    ['where'], or_condition(Condition).
 
-% Helper predicates for extracting columns and filtering rows
-extract_columns_for_rows([], _, _, []).
-extract_columns_for_rows([Row | Rows], Headers, Columns, [FilteredRow | FilteredRows]) :-
-    extract_columns(Row, Headers, Columns, FilteredRow),
-    extract_columns_for_rows(Rows, Headers, Columns, FilteredRows).
+or_condition(Condition) -->
+    ( ['either'], condition(Cond1), ['or'], condition(Cond2) ->
+        { Condition = [or, Cond1, Cond2] }
+    ; condition(Cond1),
+      ( ['and'], or_condition(Cond2) ->
+          { Condition = [and, Cond1, Cond2] }
+      ; { Condition = Cond1 }
+      )
+    ).
 
-extract_columns(Row, Headers, Columns, FilteredRow) :-
-    findall(Value,
-        (nth0(Index, Headers, Column), member(Column, Columns), nth0(Index, Row, Value)),
-        FilteredRow).
+condition([condition, ColumnName, Equality, Value]) -->
+    col(ColumnName), equality(Equality), val(Value).
 
-% Comparison helpers
-custom_compare('>', A, B) :- A > B.
-custom_compare('<', A, B) :- A < B.
-custom_compare('=', A, B) :- A = B.
+equality('=') --> ['equals'].
+equality('<') --> ['is', 'less', 'than'].
+equality('>') --> ['is', 'greater', 'than'].
+
+table(TableName) -->
+    [TableName], { atom(TableName) }.
+
+columns(Columns) -->
+    col_list(Columns).
+
+col_list([Col|Rest]) -->
+    col(Col),
+    ( [','], col_list(Rest) ->
+        { true }
+    ; ['and'], col_list(Rest) ->
+        { true }
+    ; { Rest = [] }
+    ).
+
+col(ColName) -->
+    [ColName], { atom(ColName) }.
+
+values([Val|Rest]) -->
+    val(Val),
+    ( [','], values(Rest) ->
+        { true }
+    ; ['or'], val(Val2),
+      { Rest = [Val2] }
+    ; { Rest = [] }
+    ).
+
+val(Value) -->
+    [Value], { atom(Value) }.
+
+% Evaluating logical conditions and fetching data
+evaluate_logical([command, TableColumnInfo, Conditions], FilteredTable) :-
+    process_table_column_info(TableColumnInfo, ProcessedTableColumnInfo),
+    get_tables_data(ProcessedTableColumnInfo, Conditions, FilteredTable).
+
+process_table_column_info([], []).
+
+process_table_column_info([[all, TableName]|Rest], [[TableName, all]|RestProcessed]) :-
+    process_table_column_info(Rest, RestProcessed).
+
+process_table_column_info([[Columns, TableName]|Rest], [[TableName, Columns]|RestProcessed]) :-
+    Columns \= all,
+    process_table_column_info(Rest, RestProcessed).
+
+get_tables_data([], _, []).
+
+get_tables_data([[TableName, Columns]|Rest], Conditions, [[TableName, ColumnHeaders, Rows]|RestTables]) :-
+    get_table_columns(TableName, Columns, ColumnHeaders),
+    get_table_rows(TableName, Columns, Conditions, Rows),
+    get_tables_data(Rest, Conditions, RestTables).
+
+get_table_columns(TableName, all, ColumnHeaders) :-
+    table(TableName, ColumnHeaders).
+
+get_table_columns(TableName, Columns, ColumnHeaders) :-
+    ColumnHeaders = Columns.
+
+get_table_rows(TableName, Columns, Conditions, Rows) :-
+    ( Conditions = [join|_] ; Conditions = [matches|_] ) ->
+        Rows = []
+    ; table(TableName, AllColumns),
+      findall(RowValuesSelected,
+        ( row(TableName, RowValuesAll),
+          ( Conditions = [where, Condition] ->
+              evaluate_condition(Condition, TableName, RowValuesAll)
+          ; Conditions = [] ->
+              true
+          ),
+          select_columns(RowValuesAll, Columns, RowValuesSelected)
+        ),
+        Rows).
+
+select_columns(RowValuesAll, all, RowValuesAll).
+
+select_columns(RowValuesAll, Columns, RowValuesSelected) :-
+    Columns \= all,
+    table(_, AllColumns),
+    find_column_indices(Columns, AllColumns, Indices),
+    extract_values_at_indices(RowValuesAll, Indices, RowValuesSelected).
+
+find_column_indices([], _, []).
+
+find_column_indices([Col|RestCols], AllColumns, [Index|RestIndices]) :-
+    nth0(Index, AllColumns, Col),
+    find_column_indices(RestCols, AllColumns, RestIndices).
+
+extract_values_at_indices(RowValuesAll, Indices, RowValuesSelected) :-
+    maplist(nth0_from_list(RowValuesAll), Indices, RowValuesSelected).
+
+nth0_from_list(List, Index, Element) :-
+    nth0(Index, List, Element).
+
+evaluate_condition([condition, ColumnName, Operator, Value], TableName, RowValuesAll) :-
+    table(TableName, AllColumns),
+    nth0(Index, AllColumns, ColumnName),
+    nth0(Index, RowValuesAll, CellValue),
+    compare_values(CellValue, Operator, Value).
+
+evaluate_condition([and, Cond1, Cond2], TableName, RowValuesAll) :-
+    evaluate_condition(Cond1, TableName, RowValuesAll),
+    evaluate_condition(Cond2, TableName, RowValuesAll).
+
+evaluate_condition([or, Cond1, Cond2], TableName, RowValuesAll) :-
+    ( evaluate_condition(Cond1, TableName, RowValuesAll)
+    ; evaluate_condition(Cond2, TableName, RowValuesAll)
+    ).
+
+compare_values(CellValue, '=', Value) :-
+    compare_values_eq(CellValue, Value).
+
+compare_values(CellValue, '<', Value) :-
+    compare_values_lt(CellValue, Value).
+
+compare_values(CellValue, '>', Value) :-
+    compare_values_gt(CellValue, Value).
+
+compare_values_eq(CellValue, Value) :-
+    attempt_number(CellValue, NumCellValue),
+    attempt_number(Value, NumValue),
+    !,
+    NumCellValue =:= NumValue.
+
+compare_values_eq(CellValue, Value) :-
+    attempt_date(CellValue, DateCellValue),
+    attempt_date(Value, DateValue),
+    !,
+    DateCellValue = DateValue.
+
+compare_values_eq(CellValue, Value) :-
+    CellValue = Value.
+
+compare_values_lt(CellValue, Value) :-
+    attempt_number(CellValue, NumCellValue),
+    attempt_number(Value, NumValue),
+    !,
+    NumCellValue < NumValue.
+
+compare_values_lt(CellValue, Value) :-
+    attempt_date(CellValue, DateCellValue),
+    attempt_date(Value, DateValue),
+    !,
+    date_compare('<', DateCellValue, DateValue).
+
+compare_values_gt(CellValue, Value) :-
+    attempt_number(CellValue, NumCellValue),
+    attempt_number(Value, NumValue),
+    !,
+    NumCellValue > NumValue.
+
+compare_values_gt(CellValue, Value) :-
+    attempt_date(CellValue, DateCellValue),
+    attempt_date(Value, DateValue),
+    !,
+    date_compare('>', DateCellValue, DateValue).
+
+attempt_number(Value, NumValue) :-
+    ( number(Value) ->
+        NumValue = Value
+    ; atom(Value),
+      atom_number(Value, NumValue)
+    ), !.
+
+attempt_date(Value, DateValue) :-
+    ( is_date(Value, DateValue) ->
+        true
+    ; atom(Value),
+      is_date(Value, DateValue)
+    ), !.
+
+date_compare(Operator, Date1, Date2) :-
+    compare(Cmp, Date1, Date2),
+    ( Operator = '<', Cmp = '<'
+    ; Operator = '>', Cmp = '>'
+    ; Operator = '=', Cmp = '='
+    ).

@@ -1,2 +1,0 @@
-Get all from employee.
-Get ProductName, Price from product where Price is greater than 25.
