@@ -1,5 +1,5 @@
 % main.pl
-% Include the helper and facts files
+% Include the helper and fact files
 :- [helper].
 :- [facts].
 
@@ -75,15 +75,19 @@ match_condition([matches, ColumnName, Query]) -->
 where_operation([where, Condition]) -->
     ['where'], or_condition(Condition).
 
+% Revised condition parsing to handle multiple nested either/or/and
 or_condition(Condition) -->
-    ( ['either'], condition(Cond1), ['or'], condition(Cond2) ->
-        { Condition = [or, Cond1, Cond2] }
-    ; condition(Cond1),
-      ( ['and'], or_condition(Cond2) ->
-          { Condition = [and, Cond1, Cond2] }
-      ; { Condition = Cond1 }
-      )
+    either_block(Cond),
+    ( ['and'], or_condition(Cond2) ->
+        { Condition = [and, Cond, Cond2] }
+    ; { Condition = Cond }
     ).
+
+either_block(Condition) -->
+    ['either'], condition(Cond1), ['or'], condition(Cond2),
+    { Condition = [or, Cond1, Cond2] }.
+either_block(Cond) -->
+    condition(Cond).
 
 condition([condition, ColumnName, Equality, Value]) -->
     col(ColumnName), equality(Equality), val(Value).
@@ -258,12 +262,6 @@ attempt_date(Value, DateValue) :-
     atom_number(SY, Year),
     valid_date(Day, Month, Year),
     DateValue = date(Year,Month,Day).
-
-valid_date(Day, Month, Year) :-
-    integer(Month), integer(Day), integer(Year),
-    Month >= 1, Month =< 12,
-    Day >= 1, Day =< 31,
-    Year > 0.
 
 date_compare(Operator, date(Y1,M1,D1), date(Y2,M2,D2)) :-
     date_to_number(date(Y1,M1,D1), N1),
