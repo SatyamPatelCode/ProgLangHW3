@@ -160,7 +160,8 @@ get_table_rows(TableName, Columns, Conditions, AllColumns, Rows) :-
           ),
           select_columns(RowValuesAll, Columns, AllColumns, RowValuesSelected)
         ),
-        Rows).
+        UnfilteredRows),
+      remove_duplicates_preserving_order(UnfilteredRows, Rows).
 
 select_columns(RowValuesAll, all, _AllColumns, RowValuesAll).
 
@@ -250,15 +251,19 @@ attempt_number(Value, NumValue) :-
     ), !.
 
 attempt_date(Value, DateValue) :-
-    ( is_date(Value, DateValue) ->
-        true
-    ; atom(Value),
-      is_date(Value, DateValue)
-    ), !.
+    ( atom(Value) -> atom_string(Value, StrValue) ; StrValue = Value ),
+    split_string(StrValue, "-", "", [SM, SD, SY]),
+    atom_number(SM, Month),
+    atom_number(SD, Day),
+    atom_number(SY, Year),
+    valid_date(Day, Month, Year),
+    DateValue = date(Year,Month,Day).
 
-% Convert a date(Y,M,D) to a single integer YYYYMMDD for numeric comparison
-date_to_number(date(Y,M,D), NumDate) :-
-    NumDate is Y*10000 + M*100 + D.
+valid_date(Day, Month, Year) :-
+    integer(Month), integer(Day), integer(Year),
+    Month >= 1, Month =< 12,
+    Day >= 1, Day =< 31,
+    Year > 0.
 
 date_compare(Operator, date(Y1,M1,D1), date(Y2,M2,D2)) :-
     date_to_number(date(Y1,M1,D1), N1),
@@ -267,3 +272,18 @@ date_compare(Operator, date(Y1,M1,D1), date(Y2,M2,D2)) :-
     ; Operator = '>', N1 > N2
     ; Operator = '=', N1 =:= N2
     ).
+
+date_to_number(date(Y,M,D), NumDate) :-
+    NumDate is Y*10000 + M*100 + D.
+
+% Remove duplicates while preserving order
+remove_duplicates_preserving_order(List, Result) :-
+    remove_dup_helper(List, [], Result).
+
+remove_dup_helper([], _, []).
+remove_dup_helper([H|T], Seen, [H|R]) :-
+    \+ memberchk(H, Seen),
+    remove_dup_helper(T, [H|Seen], R).
+remove_dup_helper([H|T], Seen, R) :-
+    memberchk(H, Seen),
+    remove_dup_helper(T, Seen, R).
