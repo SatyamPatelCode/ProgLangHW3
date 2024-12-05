@@ -1,5 +1,5 @@
 % main.pl
-% Include the helper and fact files
+% Include the helper and facts files
 :- [helper].
 :- [facts].
 
@@ -62,7 +62,6 @@ join_operation([join, TableName, ColumnName]) -->
 match_operation(Operation) -->
     ['such', 'that'], match_condition(Operation).
 
-% Updated here: Remove extra brackets around MatchColName in the sub-query.
 match_condition([matches, Values]) -->
     ['its', 'values', 'are', 'either'], values(Values).
 
@@ -138,40 +137,39 @@ get_tables_data([], _, []).
 
 get_tables_data([[TableName, Columns]|Rest], Conditions, [[TableName, ColumnHeaders, Rows]|RestTables]) :-
     get_table_columns(TableName, Columns, ColumnHeaders),
-    get_table_rows(TableName, Columns, Conditions, Rows),
+    table(TableName, AllColumns),
+    get_table_rows(TableName, Columns, Conditions, AllColumns, Rows),
     get_tables_data(Rest, Conditions, RestTables).
 
 get_table_columns(TableName, all, ColumnHeaders) :-
     table(TableName, ColumnHeaders).
 
-get_table_columns(TableName, Columns, ColumnHeaders) :-
+get_table_columns(_TableName, Columns, ColumnHeaders) :-
+    Columns \= all,
     ColumnHeaders = Columns.
 
-get_table_rows(TableName, Columns, Conditions, Rows) :-
+get_table_rows(TableName, Columns, Conditions, AllColumns, Rows) :-
     ( Conditions = [join|_] ; Conditions = [matches|_] ) ->
         Rows = []
-    ; table(TableName, AllColumns),
-      findall(RowValuesSelected,
+    ; findall(RowValuesSelected,
         ( row(TableName, RowValuesAll),
           ( Conditions = [where, Condition] ->
               evaluate_condition(Condition, TableName, RowValuesAll)
           ; Conditions = [] ->
               true
           ),
-          select_columns(RowValuesAll, Columns, RowValuesSelected)
+          select_columns(RowValuesAll, Columns, AllColumns, RowValuesSelected)
         ),
         Rows).
 
-select_columns(RowValuesAll, all, RowValuesAll).
+select_columns(RowValuesAll, all, _AllColumns, RowValuesAll).
 
-select_columns(RowValuesAll, Columns, RowValuesSelected) :-
+select_columns(RowValuesAll, Columns, AllColumns, RowValuesSelected) :-
     Columns \= all,
-    table(_, AllColumns),
     find_column_indices(Columns, AllColumns, Indices),
     extract_values_at_indices(RowValuesAll, Indices, RowValuesSelected).
 
 find_column_indices([], _, []).
-
 find_column_indices([Col|RestCols], AllColumns, [Index|RestIndices]) :-
     nth0(Index, AllColumns, Col),
     find_column_indices(RestCols, AllColumns, RestIndices).
@@ -197,6 +195,7 @@ evaluate_condition([or, Cond1, Cond2], TableName, RowValuesAll) :-
     ; evaluate_condition(Cond2, TableName, RowValuesAll)
     ).
 
+% Comparison logic with strict type checks
 compare_values(CellValue, '=', Value) :-
     compare_values_eq(CellValue, Value).
 
@@ -206,44 +205,42 @@ compare_values(CellValue, '<', Value) :-
 compare_values(CellValue, '>', Value) :-
     compare_values_gt(CellValue, Value).
 
-compare_values_eq(CellValue, Value) :-
-    attempt_number(CellValue, NumCellValue),
-    attempt_number(Value, NumValue),
-    !,
-    NumCellValue =:= NumValue.
+% Helper predicates for type checking
+both_numbers(Val1, Val2, Num1, Num2) :-
+    attempt_number(Val1, Num1),
+    attempt_number(Val2, Num2).
+
+both_dates(Val1, Val2, Date1, Date2) :-
+    attempt_date(Val1, Date1),
+    attempt_date(Val2, Date2).
+
+both_strings(Val1, Val2) :-
+    atom(Val1), atom(Val2).
 
 compare_values_eq(CellValue, Value) :-
-    attempt_date(CellValue, DateCellValue),
-    attempt_date(Value, DateValue),
-    !,
-    DateCellValue = DateValue.
-
-compare_values_eq(CellValue, Value) :-
-    CellValue = Value.
+    ( both_numbers(CellValue, Value, NumCell, NumVal) ->
+        NumCell =:= NumVal
+    ; both_dates(CellValue, Value, DateCell, DateVal) ->
+        date_compare('=', DateCell, DateVal)
+    ; both_strings(CellValue, Value) ->
+        CellValue = Value
+    ).
 
 compare_values_lt(CellValue, Value) :-
-    attempt_number(CellValue, NumCellValue),
-    attempt_number(Value, NumValue),
-    !,
-    NumCellValue < NumValue.
-
-compare_values_lt(CellValue, Value) :-
-    attempt_date(CellValue, DateCellValue),
-    attempt_date(Value, DateValue),
-    !,
-    date_compare('<', DateCellValue, DateValue).
+    ( both_numbers(CellValue, Value, NumCell, NumVal) ->
+        NumCell < NumVal
+    ; both_dates(CellValue, Value, DateCell, DateVal) ->
+        date_compare('<', DateCell, DateVal)
+    ; false
+    ).
 
 compare_values_gt(CellValue, Value) :-
-    attempt_number(CellValue, NumCellValue),
-    attempt_number(Value, NumValue),
-    !,
-    NumCellValue > NumValue.
-
-compare_values_gt(CellValue, Value) :-
-    attempt_date(CellValue, DateCellValue),
-    attempt_date(Value, DateValue),
-    !,
-    date_compare('>', DateCellValue, DateValue).
+    ( both_numbers(CellValue, Value, NumCell, NumVal) ->
+        NumCell > NumVal
+    ; both_dates(CellValue, Value, DateCell, DateVal) ->
+        date_compare('>', DateCell, DateVal)
+    ; false
+    ).
 
 attempt_number(Value, NumValue) :-
     ( number(Value) ->
@@ -259,9 +256,14 @@ attempt_date(Value, DateValue) :-
       is_date(Value, DateValue)
     ), !.
 
-date_compare(Operator, Date1, Date2) :-
-    compare(Cmp, Date1, Date2),
-    ( Operator = '<', Cmp = '<'
-    ; Operator = '>', Cmp = '>'
-    ; Operator = '=', Cmp = '='
+% Convert a date(Y,M,D) to a single integer YYYYMMDD for numeric comparison
+date_to_number(date(Y,M,D), NumDate) :-
+    NumDate is Y*10000 + M*100 + D.
+
+date_compare(Operator, date(Y1,M1,D1), date(Y2,M2,D2)) :-
+    date_to_number(date(Y1,M1,D1), N1),
+    date_to_number(date(Y2,M2,D2), N2),
+    ( Operator = '<', N1 < N2
+    ; Operator = '>', N1 > N2
+    ; Operator = '=', N1 =:= N2
     ).
