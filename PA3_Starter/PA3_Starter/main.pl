@@ -62,14 +62,15 @@ join_operation([join, TableName, ColumnName]) -->
 match_operation(Operation) -->
     ['such', 'that'], match_condition(Operation).
 
+% Updated here: Remove extra brackets around MatchColName in the sub-query.
 match_condition([matches, Values]) -->
     ['its', 'values', 'are', 'either'], values(Values).
 
 match_condition([matches, ColumnName, Query]) -->
     col(ColumnName), ['matches', 'values', 'within', 'the'], col(MatchColName), ['in'], table(MatchTableName),
     ( where_operation(WhereOp) ->
-        { Query = [command, [[[MatchColName], MatchTableName]], WhereOp] }
-    ; { Query = [command, [[[MatchColName], MatchTableName]], []] }
+        { Query = [command, [[MatchColName, MatchTableName]], WhereOp] }
+    ; { Query = [command, [[MatchColName, MatchTableName]], []] }
     ).
 
 where_operation([where, Condition]) -->
@@ -100,10 +101,8 @@ columns(Columns) -->
 
 col_list([Col|Rest]) -->
     col(Col),
-    ( [','], col_list(Rest) ->
-        { true }
-    ; ['and'], col_list(Rest) ->
-        { true }
+    ( [','], col_list(Rest) -> { true }
+    ; ['and'], col_list(Rest) -> { true }
     ; { Rest = [] }
     ).
 
@@ -112,8 +111,7 @@ col(ColName) -->
 
 values([Val|Rest]) -->
     val(Val),
-    ( [','], values(Rest) ->
-        { true }
+    ( [','], values(Rest) -> { true }
     ; ['or'], val(Val2),
       { Rest = [Val2] }
     ; { Rest = [] }
